@@ -1,0 +1,29 @@
+# relay — provider and routing configuration
+# Copy this file to config.yaml and edit with your settings.
+# Approximate public rates (Sprint 1). Easy to refine later.
+
+providers:
+  - name: ollama
+    base_url: http://localhost:11434/v1
+    api_key_env: null  # no auth needed for local Ollama
+    models:
+      - name: llama3.2:1b
+        cost_per_1k_input_tokens: 0.0
+        cost_per_1k_output_tokens: 0.0
+    default_model: llama3.2:1b
+
+  - name: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY  # set in .env or shell environment
+    models:
+      # $0.05/1M input = $0.00005/1k; $0.08/1M output = $0.00008/1k
+      - name: llama-3.1-8b-instant
+        cost_per_1k_input_tokens: 0.00005
+        cost_per_1k_output_tokens: 0.00008
+    default_model: llama-3.1-8b-instant
+
+routing:
+  strategy: round_robin  # round_robin | cost_based
+  max_retries: 3
+  retry_base_delay: 0.5  # seconds
+  retry_max_delay: 5.0   # seconds

@@ -46,9 +46,18 @@ class RoutingConfig(BaseModel):
     retry_max_delay: float = 5.0
 
 
+class CacheConfig(BaseModel):
+    enabled: bool = True
+    model_name: str = "all-MiniLM-L6-v2"
+    similarity_threshold: float = 0.95
+    ttl_seconds: int = 3600
+    max_size: int = 1000
+
+
 class AppConfig(BaseModel):
     providers: list[ProviderConfig] = []
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
 
 
 def load_config(config_path: str | Path = "config.yaml") -> AppConfig:

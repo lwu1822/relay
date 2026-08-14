@@ -27,3 +27,10 @@ routing:
   max_retries: 3
   retry_base_delay: 0.5  # seconds
   retry_max_delay: 5.0   # seconds
+
+cache:
+  enabled: true
+  model_name: all-MiniLM-L6-v2  # sentence-transformers model
+  similarity_threshold: 0.95    # cosine similarity required for a hit
+  ttl_seconds: 3600             # entry expiry
+  max_size: 1000                # in-memory entry cap (FIFO eviction)

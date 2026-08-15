@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.cache import SemanticCache
@@ -19,7 +21,11 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config = load_config("config.yaml")
+    # Config path is overridable via env var so Docker/Fly can point at a
+    # deploy-specific config baked into the image. Defaults to config.yaml
+    # for local dev.
+    config_path = os.environ.get("RELAY_CONFIG_PATH", "config.yaml")
+    config = load_config(config_path)
     app.state.router = Router(
         provider_configs=config.providers,
         routing=config.routing,
@@ -57,7 +63,20 @@ async def health():
 
 
 @app.get("/ready")
-async def ready(request: dict = {}):
+async def ready(request: Request):
+    """Readiness probe — true once lifespan has wired router + cache.
+
+    Returns 503 until startup completes so orchestrators (Fly, Docker)
+    don't route traffic to an instance that hasn't loaded the embedding
+    model yet.
+    """
+    router_ready = hasattr(request.app.state, "router") and request.app.state.router is not None
+    cache_resolved = hasattr(request.app.state, "cache")
+    if not (router_ready and cache_resolved):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready"},
+        )
     return {"status": "ready"}
 
 

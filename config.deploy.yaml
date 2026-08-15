@@ -1,0 +1,30 @@
+# relay — deploy config (Google Cloud Run)
+#
+# Baked into the Docker image and selected via RELAY_CONFIG_PATH=config.deploy.yaml.
+# Groq-only: Ollama runs on a local machine and is not reachable from a cloud
+# VM. The semantic cache still works (embedding model is local to the container).
+# GROQ_API_KEY is injected at runtime via `gcloud run deploy --set-env-vars`.
+
+providers:
+  - name: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    models:
+      # $0.05/1M input = $0.00005/1k; $0.08/1M output = $0.00008/1k
+      - name: llama-3.1-8b-instant
+        cost_per_1k_input_tokens: 0.00005
+        cost_per_1k_output_tokens: 0.00008
+    default_model: llama-3.1-8b-instant
+
+routing:
+  strategy: round_robin  # single provider — strategy is moot but kept for config parity
+  max_retries: 3
+  retry_base_delay: 0.5
+  retry_max_delay: 5.0
+
+cache:
+  enabled: true
+  model_name: all-MiniLM-L6-v2
+  similarity_threshold: 0.95
+  ttl_seconds: 3600
+  max_size: 1000

@@ -1,0 +1,41 @@
+# relay — local Docker Compose config
+#
+# Used by docker-compose.yml (mounted into the container as /app/config.yaml).
+# Ollama runs on the host, so the container reaches it via host.docker.internal
+# (mapped to the host gateway in docker-compose.yml). Groq key comes from the
+# GROQ_API_KEY env var on the host.
+#
+# This file is committed as a template. Your local (gitignored) config.yaml is
+# for running uvicorn directly on the host and keeps Ollama at localhost:11434.
+
+providers:
+  - name: ollama
+    base_url: http://host.docker.internal:11434/v1
+    api_key_env: null
+    models:
+      - name: llama3.2:1b
+        cost_per_1k_input_tokens: 0.0
+        cost_per_1k_output_tokens: 0.0
+    default_model: llama3.2:1b
+
+  - name: groq
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    models:
+      - name: llama-3.1-8b-instant
+        cost_per_1k_input_tokens: 0.00005
+        cost_per_1k_output_tokens: 0.00008
+    default_model: llama-3.1-8b-instant
+
+routing:
+  strategy: round_robin
+  max_retries: 3
+  retry_base_delay: 0.5
+  retry_max_delay: 5.0
+
+cache:
+  enabled: true
+  model_name: all-MiniLM-L6-v2
+  similarity_threshold: 0.95
+  ttl_seconds: 3600
+  max_size: 1000

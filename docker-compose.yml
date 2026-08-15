@@ -1,0 +1,35 @@
+# relay — local dev via Docker Compose
+#
+# Usage:
+#   GROQ_API_KEY=your-key docker compose up --build
+#   curl http://localhost:8000/health
+#
+# Ollama must be running on the host (ollama serve). The container reaches it
+# via host.docker.internal, mapped to the host gateway below.
+
+services:
+  relay:
+    build: .
+    ports:
+      - "8000:8000"
+    # Mount the docker-specific config (Ollama at host.docker.internal) as
+    # /app/config.yaml inside the container. Read-only — the app never writes
+    # to it.
+    volumes:
+      - ./config.docker.yaml:/app/config.yaml:ro
+    environment:
+      # Use the mounted config (default in the image is config.deploy.yaml).
+      RELAY_CONFIG_PATH: config.yaml
+      # Pass through the Groq key from the host environment.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    # host.docker.internal resolves to the host's gateway IP, letting the
+    # container reach Ollama running on the host at :11434.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s  # embedding model load + uvicorn startup
+    restart: unless-stopped

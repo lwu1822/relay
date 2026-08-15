@@ -1,0 +1,25 @@
+# Exclude everything not needed in the Docker build context.
+# Keep the image small and avoid leaking local secrets.
+
+.git/
+.gitignore
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+scratch/
+
+# Local secret configs — never bake into the image.
+config.yaml
+.env
+.env.example
+
+# Dev-only requirements not needed in the runtime image.
+requirements-dev.txt
+
+# Tests are not needed in the runtime image.
+tests/
+
+# IDE / OS files.
+.DS_Store
+*.swp

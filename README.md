@@ -1,6 +1,10 @@
 # relay
 
-A self-hostable **LLM inference gateway** with an OpenAI-compatible API. Routes requests across multiple providers (Ollama, Groq), with semantic caching, quality-aware cost optimization, retry/failover, and Prometheus observability.
+A self-hostable **LLM inference gateway** with an OpenAI-compatible API. Routes requests across multiple providers (Ollama, Groq), with semantic caching, retry/failover, and Prometheus observability — deployed on Render's free tier using a torch-free ONNX Runtime inference path.
+
+**Live demo:** https://relay-j8s0.onrender.com
+
+> The free-tier instance spins down after 15 min of inactivity. First request after idle takes ~30-60 s to cold-start; subsequent requests are fast.
 
 ## Why
 
@@ -10,20 +14,37 @@ Every team using LLMs hits the same problems: vendor lock-in, unpredictable late
 
 - **OpenAI-compatible API** — drop-in replacement for `openai.ChatCompletion.create()`
 - **Multi-provider routing** — round-robin or cost-based across Ollama (local) and Groq (cloud)
-- **Semantic caching** — sentence-transformer embeddings + cosine similarity; skip the provider entirely on cache hits
+- **Semantic caching** — `all-MiniLM-L6-v2` embeddings + cosine similarity; skip the provider entirely on cache hits
 - **Retry & failover** — exponential backoff per provider, automatic fallback to next provider
-- **Quality-aware cost optimization** — route to the cheapest model that passes a per-category quality bar
 - **Observability** — Prometheus metrics (p50/p95/p99 latency, cache hit rate, cost saved), structured JSON logging
+- **Torch-free deployment** — ONNX Runtime + numpy mean pooling replaces PyTorch in the runtime image, cutting RAM from 500 MB+ to 176 MB and fitting a 512 MB free-tier instance
 
-## Quick start
+## Quick start (Docker)
 
 ```bash
-# Clone
 git clone https://github.com/lwu1822/relay.git
 cd relay
 
-# Install dependencies
-pip install -r requirements.txt
+# Set your Groq API key
+export GROQ_API_KEY=your-key-here
+
+# Start the gateway + reach Ollama on the host via host.docker.internal
+docker compose up
+
+# Test (uses Ollama's llama3.2:1b by default in config.docker.yaml)
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "llama3.2:1b", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+## Quick start (local, no Docker)
+
+```bash
+git clone https://github.com/lwu1822/relay.git
+cd relay
+
+# Install dev dependencies (includes sentence-transformers + torch for local dev)
+pip install -r requirements-dev.txt
 
 # Configure
 cp config.example.yaml config.yaml
@@ -40,17 +61,49 @@ curl http://localhost:8000/v1/chat/completions \
 
 ## Architecture
 
-```
-Client → relay gateway → [cache lookup] → [router] → provider (Ollama / Groq)
-                         ↓ cache hit        ↓ fail
-                         return cached      retry → fallback provider
-```
+```mermaid
+flowchart LR
+    Client["Client"] -->|POST /v1/chat/completions| Gateway["relay gateway<br/>FastAPI"]
 
-<!-- Architecture diagram (PNG) will be added in Sprint 3 -->
+    subgraph Cache["Semantic cache"]
+        Enc["ONNX Runtime encoder<br/>all-MiniLM-L6-v2 → 384-dim vector"]
+        Store["In-memory store<br/>cosine sim ≥ 0.95 · TTL · FIFO"]
+        Enc --> Store
+    end
+
+    Gateway -->|embed query| Enc
+    Store -->|hit| Gateway
+
+    Gateway -->|miss / skip cache| Router["Router<br/>round-robin · cost-based"]
+    Router --> Provider1["Ollama<br/>local CPU"]
+    Router --> Provider2["Groq<br/>cloud LPU"]
+
+    Provider1 -->|fail| Router
+    Provider2 -->|fail| Router
+    Router -->|retry + failover| Provider1
+    Router -->|retry + failover| Provider2
+
+    Provider1 -->|response| Gateway
+    Provider2 -->|response| Gateway
+    Gateway -->|cache write| Store
+    Gateway -->|response| Client
+
+    Gateway -.->|/metrics| Prom["Prometheus<br/>requests · cache_hits · latency · cost"]
+```
 
 ## Configuration
 
-See [`config.example.yaml`](config.example.yaml) for all options.
+See [`config.example.yaml`](config.example.yaml) for all options. Key settings:
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `providers` | List of provider configs (type, base_url, api_key, model) | — |
+| `cache.enabled` | Enable semantic cache | `true` |
+| `cache.backend` | Embedding engine: `torch` (local dev) or `onnx` (deploy) | `torch` |
+| `cache.model_dir` | Path to ONNX model dir (required when `backend: onnx`) | `null` |
+| `cache.similarity_threshold` | Cosine similarity required for a hit | `0.95` |
+| `cache.ttl_seconds` | Entry expiry | `3600` |
+| `cache.max_size` | In-memory entry cap (FIFO eviction) | `1000` |
 
 ## Benchmark
 
@@ -98,14 +151,30 @@ concurrency 20 against a single Ollama (`llama3.2:1b`) backend.
   local single-process backend, not the gateway; a faster provider
   (e.g. Groq cloud) would compress the tail substantially.
 
+## Deployment
+
+The gateway deploys to [Render](https://render.com)'s free tier (512 MB RAM, no credit card) via a multi-stage Dockerfile:
+
+- **Builder stage** — installs PyTorch + `optimum` to export `all-MiniLM-L6-v2` to ONNX format
+- **Runtime stage** — slim image with only `onnxruntime` + `tokenizers` + `numpy` (no torch); 685 MB image, 176 MB RAM at runtime
+
+The same image runs locally (via `docker compose up` with `config.docker.yaml` pointing at host Ollama) and in production (with `config.deploy.yaml` pointing at Groq). Config selection is via the `RELAY_CONFIG_PATH` environment variable; `GROQ_API_KEY` is set in the Render dashboard.
+
+| Metric | With PyTorch | With ONNX Runtime | Change |
+|--------|-------------|-------------------|--------|
+| Docker image | 2.2 GB | 685 MB | -69% |
+| Runtime RAM | 500 MB+ | 176 MB | -65% |
+| Embedding accuracy | — | identical (same weights) | 0% |
+
 ## Tech stack
 
 - **Python 3.11+** / FastAPI / httpx / pydantic v2
-- **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic cache embeddings
+- **ONNX Runtime** + **tokenizers** for torch-free embedding inference (deploy)
+- **sentence-transformers** (`all-MiniLM-L6-v2`) for local dev embeddings
+- **numpy** for mean pooling (replaces sentence-transformers' Pooling module in deploy)
 - **prometheus-client** for metrics
 - **structlog** for structured logging
-- **Docker** multi-stage build / **Fly.io** deployment
-- **Go** for V2 hot-path rewrite (planned)
+- **Docker** multi-stage build / **Render** deployment
 
 ## License
 

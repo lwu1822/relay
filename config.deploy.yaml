@@ -25,6 +25,8 @@ routing:
 cache:
   enabled: true
   model_name: all-MiniLM-L6-v2
+  backend: onnx              # torch-free inference (ONNX Runtime + numpy pooling)
+  model_dir: /opt/model      # pre-baked ONNX model + tokenizer (see Dockerfile)
   similarity_threshold: 0.95
   ttl_seconds: 3600
   max_size: 1000

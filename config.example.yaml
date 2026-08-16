@@ -31,6 +31,8 @@ routing:
 cache:
   enabled: true
   model_name: all-MiniLM-L6-v2  # sentence-transformers model
+  backend: torch                # torch (local dev, needs sentence-transformers) | onnx (deploy, torch-free)
+  model_dir: null               # path to ONNX model dir (required when backend=onnx, e.g. /opt/model)
   similarity_threshold: 0.95    # cosine similarity required for a hit
   ttl_seconds: 3600             # entry expiry
   max_size: 1000                # in-memory entry cap (FIFO eviction)

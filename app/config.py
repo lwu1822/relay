@@ -49,6 +49,8 @@ class RoutingConfig(BaseModel):
 class CacheConfig(BaseModel):
     enabled: bool = True
     model_name: str = "all-MiniLM-L6-v2"
+    backend: str = "torch"  # torch | onnx (onnx = torch-free, for constrained deploys)
+    model_dir: Optional[str] = None  # path to ONNX model dir (required when backend=onnx)
     similarity_threshold: float = 0.95
     ttl_seconds: int = 3600
     max_size: int = 1000

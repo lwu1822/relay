@@ -49,7 +49,15 @@ class SemanticCache:
         self._lock = asyncio.Lock()
         if encoder is not None:
             self._encoder = encoder
+        elif config.backend == "onnx":
+            # Torch-free path for memory-constrained deployments (Koyeb 512MB).
+            # Uses ONNX Runtime + tokenizers library directly.
+            from app.onnx_encoder import OnnxEncoder
+
+            model_dir = config.model_dir or "/opt/model"
+            self._encoder = OnnxEncoder(model_dir=model_dir)
         else:
+            # Default path: PyTorch via sentence-transformers (local dev).
             # Lazy import so the module loads even if sentence-transformers
             # is not yet installed (e.g. during config-only smoke tests).
             from sentence_transformers import SentenceTransformer
@@ -57,6 +65,7 @@ class SemanticCache:
             self._encoder = SentenceTransformer(config.model_name)
         logger.info(
             "cache_loaded",
+            backend=config.backend,
             model_name=config.model_name,
             threshold=config.similarity_threshold,
             ttl_seconds=config.ttl_seconds,
